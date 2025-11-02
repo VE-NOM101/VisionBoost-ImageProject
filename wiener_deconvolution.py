@@ -43,6 +43,7 @@ def wiener_deconv(blurred, psf, K=0.001):
 
 
 
+
 def wiener_deconv_auto(blurred, psf, K=0.001):
     """
     Wiener deconvolution for grayscale or color images.
@@ -81,3 +82,67 @@ def wiener_deconv_auto(blurred, psf, K=0.001):
         restored = restored_f.astype(orig_dtype)
     
     return restored
+
+
+
+# ============================================================
+# WIENER RESTORATION FOR UNIFORM LINEAR MOTION BLUR
+# ============================================================
+import numpy as np
+from skimage import img_as_float
+
+# -------- H(u,v) for uniform linear motion --------
+def make_H_motion(M, N, L, theta_deg, T=1.0):
+    theta = np.deg2rad(theta_deg)
+    a = (L * np.cos(theta)) / T
+    b = (L * np.sin(theta)) / T
+
+    u = np.fft.fftfreq(M)
+    v = np.fft.fftfreq(N)
+    U, V = np.meshgrid(u, v, indexing='ij')
+    arg = (U * a + V * b)
+
+    eps = 1e-12
+    x = np.pi * arg
+    sinc = np.sin(x) / np.where(np.abs(x) < eps, 1.0, x)
+    sinc = np.where(np.abs(x) < eps, 1.0, sinc)
+    H = T * sinc * np.exp(-1j * x)
+    return H
+
+# -------- Robust Wiener for motion blur --------
+def wiener_restore_uniform_motion(img, L=15, theta=0, T=1.0, snr_db=30):
+    """
+    Robust Wiener restoration using the analytical motion H(u,v).
+    Accepts grayscale or RGB image in any dtype; returns float in [0,1].
+    """
+    # 1) Normalize safely to float [0,1]
+    img = img_as_float(img)
+    M, N = img.shape[:2]
+
+    # 2) Build H
+    H = make_H_motion(M, N, L, theta, T)
+
+    # 3) Compute K (NSR) from SNR, with floors to avoid blow-ups
+    #    K too small saturates to white; clamp to a sensible minimum.
+    K = 10 ** (-snr_db / 10.0)
+    K = float(np.clip(K, 1e-6, 1.0))   # <= key line
+
+    # 4) Stable Wiener per-channel with denominator floor
+    def _wiener_channel(blurred2d, H, K):
+        G = np.fft.fft2(blurred2d)
+        Hc = np.conj(H)
+        denom = (np.abs(H) ** 2) + K
+        denom = np.maximum(denom, 1e-8)  # <= key line to avoid division blow-up
+        F_hat = (Hc / denom) * G
+        out = np.fft.ifft2(F_hat).real
+        out = np.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0)
+        return np.clip(out, 0.0, 1.0)
+
+    if img.ndim == 3:
+        restored = np.zeros_like(img)
+        for c in range(img.shape[2]):
+            restored[..., c] = _wiener_channel(img[..., c], H, K)
+    else:
+        restored = _wiener_channel(img, H, K)
+
+    return restored, H
