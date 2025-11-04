@@ -111,29 +111,29 @@ def check_salt_pepper(image):
     print(f"Black pixels: {black_pixels} ({black_pixels/total_pixels*100:.2f}%)")
 
 
-def apply_custom_H_motion_blur(image_path, a, b, snr_db=30, T=1.0, output_dir="custom_degraded"):
+def apply_custom_H_motion_blur(image_path, length, angle, snr_db=30, T=1.0, output_dir="custom_degraded"):
+
     # --- load image ---
     img = np.array(Image.open(image_path).convert("RGB"), dtype=np.float32) / 255.0
     M, N = img.shape[:2]
 
+    # --- motion parameters ---
+    theta_rad = np.deg2rad(angle)
+    a = (length * np.cos(theta_rad)) / T
+    b = (length * np.sin(theta_rad)) / T
+
     # ============================================================
-    # Create degradation function H(u,v) using a and b directly
+    # Create degradation function H(u,v)
     # ============================================================
     def make_H_motion(M, N, a, b, T):
         u = np.fft.fftfreq(M)
         v = np.fft.fftfreq(N)
         U, V = np.meshgrid(u, v, indexing='ij')
-        
-        # Direct use of a and b
         arg = (U * a + V * b)
         eps = 1e-12
         x = np.pi * arg
-        
-        # Sinc function
         sinc = np.sin(x) / np.where(np.abs(x) < eps, 1.0, x)
         sinc = np.where(np.abs(x) < eps, 1.0, sinc)
-        
-        # Motion blur transfer function
         H = T * sinc * np.exp(-1j * x)
         return H
 
@@ -149,15 +149,12 @@ def apply_custom_H_motion_blur(image_path, a, b, snr_db=30, T=1.0, output_dir="c
             G = H * F
             g = np.fft.ifft2(G).real
             g = np.clip(g, 0, 1)
-            
-            # Add noise if SNR is specified
             if snr_db:
                 signal_power = np.mean(g**2)
                 snr_linear = 10 ** (snr_db / 10)
                 noise_power = signal_power / snr_linear
                 noise = np.random.normal(0, np.sqrt(noise_power), g.shape)
                 g = np.clip(g + noise, 0, 1)
-            
             degraded[..., c] = g
         return degraded
 
@@ -167,8 +164,8 @@ def apply_custom_H_motion_blur(image_path, a, b, snr_db=30, T=1.0, output_dir="c
     os.makedirs(output_dir, exist_ok=True)
     base = os.path.splitext(os.path.basename(image_path))[0]
 
-    blurred_path = os.path.join(output_dir, f"Hmotion_a{a}_b{b}_{base}.png")
-    psf_img_path = os.path.join(output_dir, f"Hmotion_PSF_a{a}_b{b}_{base}.png")
+    blurred_path = os.path.join(output_dir, f"Hmotion_{base}.png")
+    psf_img_path = os.path.join(output_dir, f"Hmotion_PSF_{base}.png")
 
     plt.imsave(blurred_path, np.clip(degraded, 0, 1))
     plt.imsave(psf_img_path, np.log1p(np.abs(np.fft.fftshift(H))), cmap="gray")

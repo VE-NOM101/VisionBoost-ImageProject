@@ -225,7 +225,7 @@ elif page == "Non-Blind Deblurring":
     st.header("Non-Blind Deblurring")
 
     method = st.radio("Choose Deblurring Method", [
-                      "Wiener Filtering","Wiener Filtering (Uniform Motion)", "Richardson-Lucy"])
+                      "Wiener Filtering","Richardson-Lucy","Wiener Filtering (Uniform Motion)"])
 
     if method == "Wiener Filtering":
         # Step 1: Upload blurred/degraded image
@@ -346,7 +346,6 @@ elif page == "Non-Blind Deblurring":
                 st.success(f"Deblurred image saved as `{save_path}`")
     
     elif method == "Wiener Filtering (Uniform Motion)":
-        st.subheader("Wiener Restoration – Uniform Linear Motion Model")
 
         uploaded_img = st.file_uploader(
             "Upload degraded / motion-blurred image",
@@ -357,37 +356,101 @@ elif page == "Non-Blind Deblurring":
         if uploaded_img is not None:
             img = io.imread(uploaded_img)
             img = img_as_float(img)
-            st.image(img, caption="Blurred Input", use_container_width=True)
+        
+            # Resize for consistent display
+            max_width = 300
+            if img.shape[1] > max_width:
+                scale = max_width / img.shape[1]
+                h = int(img.shape[0] * scale)
+                w = max_width
+                img_display = cv2.resize(img, (w, h))
+            else:
+                img_display = img
+                w = img.shape[1]
 
-            st.markdown("### Motion Parameters")
-            L = st.slider("Motion Blur Length (pixels)", 1, 50, 15)
-            theta = st.slider("Motion Blur Angle (° anticlockwise)", -90, 90, 0)
-            T = st.number_input("Exposure Time (T)", 0.1, 5.0, 1.0, step=0.1)
-            snr_db = st.slider("Estimated SNR (dB)", 10, 50, 30)
+            col1, col2 = st.columns([1, 1])
+        
+            with col1:
+                st.markdown("**Blurred Input Image**")
+                st.image(img_display, use_container_width=True)
 
-            if st.button("🚀 Run Wiener Motion Deblurring"):
-                from wiener_deconvolution import wiener_restore_uniform_motion
-
-                restored, H = wiener_restore_uniform_motion(
-                    img, L=L, theta=theta, T=T, snr_db=snr_db
+            with col2:
+                st.markdown("### Motion Parameters")
+            
+                L = st.slider(
+                    "Motion Blur Length (pixels)", 
+                    1, 50, 15,
+                    help="Length of the motion blur kernel"
                 )
+                theta = st.slider(
+                    "Motion Blur Angle (° anticlockwise)", 
+                    -90, 90, 0,
+                    help="0°=horizontal right, 90°=vertical up"
+                )
+                T = st.number_input(
+                    "Exposure Time (T)", 
+                    0.1, 5.0, 1.0, 
+                    step=0.1,
+                    help="Camera exposure time"
+                )
+                snr_db = st.slider(
+                    "Estimated SNR (dB)", 
+                    10, 50, 30,
+                    help="Signal-to-Noise Ratio"
+                )
+            
+                # Run button
+                run_button = st.button("Run Wiener Motion Deblurring", type="primary", use_container_width=True)
 
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.image(img, caption="Blurred Input", use_container_width=True)
-                with col2:
-                    st.image(restored, caption="Wiener Restored Output", use_container_width=True)
+       
+            if run_button:
+                with st.spinner("🔄 Applying Wiener restoration..."):
+                    from wiener_deconvolution import wiener_restore_uniform_motion
 
-                os.makedirs("wiener_motion", exist_ok=True)
-                restored_name = f"wnr_motion_{uploaded_img.name}"
-                save_path = os.path.join("wiener_motion", restored_name)
-                io.imsave(save_path, img_as_ubyte(restored))
-                st.success(f"✅ Restored image saved as `{save_path}`")
+                    restored, H = wiener_restore_uniform_motion(
+                        img, L=L, theta=theta, T=T, snr_db=snr_db
+                    )
 
-                # Optional: show PSF spectrum
-                import matplotlib.pyplot as plt
-                H_mag = np.log1p(np.abs(np.fft.fftshift(H)))
-                st.image(H_mag, caption="|H(u,v)| (log magnitude)", width=400)
+                    st.success("Restoration complete!")
+                
+
+                    st.markdown("### Results Comparison")
+                    col1, col2 = st.columns(2)
+                
+                    with col1:
+                        st.markdown("**Blurred Input**")
+                        st.image(img, use_container_width=True)
+                
+                    with col2:
+                        st.markdown("**Wiener Restored**")
+                        st.image(restored, use_container_width=True)
+
+                    # Save restored image
+                    os.makedirs("wiener_motion", exist_ok=True)
+                    restored_name = f"wnr_motion_{uploaded_img.name}"
+                    save_path = os.path.join("wiener_motion", restored_name)
+                    io.imsave(save_path, img_as_ubyte(restored))
+                    st.success(f"Restored image saved as `{save_path}`")
+
+             
+                    st.markdown("### Degradation Model Details")
+                    col1, col2 = st.columns([1, 1])
+                
+                    with col1:
+                    
+                        H_mag = np.log1p(np.abs(np.fft.fftshift(H)))
+                        H_normalized = cv2.normalize(H_mag, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+                        st.image(H_normalized, caption="|H(u,v)| (log magnitude)", use_container_width=True)
+                
+                    with col2:
+                        st.markdown("**Parameters Used:**")
+                        st.info(f"""
+                        • **Motion Length:** {L} pixels
+                        • **Motion Angle:** {theta}° (anticlockwise)
+                        • **Exposure Time (T):** {T}
+                        • **SNR:** {snr_db} dB
+                        """)
+
 
 elif page == "Blind Deblurring":
     st.header("Blind Deblurring")
@@ -404,13 +467,11 @@ elif page == "Blind Deblurring":
         )
 
         if uploaded_img is not None:
-            # Read image as float
             img = io.imread(uploaded_img)
             img = img_as_float(img)
-        
-            st.image(img, caption="Blurred Input Image", use_container_width=True)
 
-            # Import blind RL functions
+            # --- Layout: Left = Image, Right = Config ---
+            col_img, col_cfg = st.columns([1, 1.2])
             try:
                 from richardson_lucy_deconvolution import (
                     blind_richardson_lucy, 
@@ -418,110 +479,87 @@ elif page == "Blind Deblurring":
                     normalize_psf
                 )
             
-                st.success("✓ Blind Richardson-Lucy module loaded successfully.")
+                st.success("Blind Richardson-Lucy module loaded successfully.")
             except Exception as e:
                 st.error(f"Failed to import blind RL functions: {e}")
                 st.stop()
+            with col_img:
+                st.image(img, caption="Blurred Input Image", use_container_width=True)
 
-            # Configuration section
-            st.markdown("### Configuration")
-        
-            col1, col2 = st.columns(2)
-        
-            with col1:
-                # PSF size input
-                st.markdown("**PSF Size to Estimate**")
+            with col_cfg:
+                st.markdown("Configuration")
+
+                # PSF Size Inputs
+                st.markdown("PSF Size to Estimate**")
                 psf_height = st.number_input(
                     "PSF Height", 
-                    min_value=3, 
-                    max_value=51, 
-                    value=15, 
-                    step=2,
+                    min_value=3, max_value=51, value=15, step=2,
                     help="Must be odd number. Larger size = more flexible but slower"
                 )
                 psf_width = st.number_input(
                     "PSF Width", 
-                    min_value=3, 
-                    max_value=51, 
-                    value=15, 
-                    step=2,
+                    min_value=3, max_value=51, value=15, step=2,
                     help="Must be odd number"
-                )   
-            
-                # Ensure odd dimensions
+                )
+
                 if psf_height % 2 == 0:
                     psf_height += 1
                 if psf_width % 2 == 0:
                     psf_width += 1
-                
+
                 psf_size = (psf_height, psf_width)
                 st.info(f"PSF size: {psf_size[0]} × {psf_size[1]}")
-        
-            with col2:
-                # Iteration controls
-                st.markdown("**Iteration Settings**")
+
+                # Iteration Settings
+                st.markdown("Iteration Settings")
                 steps = st.slider(
                     "Number of alternating iterations",
-                    min_value=5, 
-                    max_value=100, 
-                    value=25, 
-                    step=5,
+                    min_value=5, max_value=100, value=25, step=5,
                     help="More iterations = better results but slower"
                 )
-            
                 inner_steps = st.slider(
                     "Inner RL steps per update",
-                    min_value=1, 
-                    max_value=5, 
-                    value=1, 
-                    step=1,
+                    min_value=1, max_value=5, value=1, step=1,
                     help="Usually 1 is sufficient"
                 )
-        
-            # Advanced options
-            with st.expander("🔧 Advanced Options"):
-                clip_output = st.checkbox(
-                    "Clip output to [0, 1]", 
-                    value=True,
-                    help="Prevents pixel values outside valid range"
-                )
-            
-                psf_regularization = st.checkbox(
-                    "Enable PSF regularization", 
-                    value=True,
-                    help="Applies smoothing to PSF for stability - recommended for noisy images"
-                )
-            
-                # Optional: Upload initial PSF guess
-                use_custom_psf = st.checkbox(
-                    "Use custom initial PSF guess (optional)",
-                    value=False,
-                    help="If unchecked, will use Gaussian initialization"
-                )
-            
-                uploaded_psf = None
-                if use_custom_psf:
-                    uploaded_psf = st.file_uploader(
-                        "Upload initial PSF JSON (optional)", 
-                        type=["json"],
-                        key="blind_rl_psf"
+
+                # Advanced Options
+                with st.expander("Advanced Options"):
+                    clip_output = st.checkbox(
+                        "Clip output to [0, 1]", value=True,
+                        help="Prevents pixel values outside valid range"
                     )
-                
-                    if uploaded_psf is not None:
-                        try:
-                            from richardson_lucy_deconvolution import load_psf_from_json
-                            psf_init, _ = load_psf_from_json(uploaded_psf)
-                            st.success("✓ Custom PSF loaded successfully.")
-                        except Exception as e:
-                            st.error(f"Failed to load PSF JSON: {e}")
-                        psf_init = None
+                    psf_regularization = st.checkbox(
+                        "Enable PSF regularization", value=True,
+                        help="Applies smoothing to PSF for stability - recommended for noisy images"
+                    )
+                    use_custom_psf = st.checkbox(
+                        "Use custom initial PSF guess (optional)",
+                        value=False, help="If unchecked, uses Gaussian initialization"
+                    )
+
+                    uploaded_psf = None
+                    if use_custom_psf:
+                        uploaded_psf = st.file_uploader(
+                            "Upload initial PSF JSON (optional)", 
+                            type=["json"], key="blind_rl_psf"
+                        )
+
+                        if uploaded_psf is not None:
+                            try:
+                                from richardson_lucy_deconvolution import load_psf_from_json
+                                psf_init, _ = load_psf_from_json(uploaded_psf)
+                                st.success("✓ Custom PSF loaded successfully.")
+                            except Exception as e:
+                                st.error(f"Failed to load PSF JSON: {e}")
+                            psf_init = None
+                        else:
+                            psf_init = None
                     else:
                         psf_init = None
-                else:
-                    psf_init = None
 
             # Run button
-            if st.button("🚀 Run Blind Deconvolution", type="primary"):
+            if st.button("Run Blind Deconvolution", type="primary"):
                 with st.spinner("Processing... This may take a few moments..."):
                     try:
                         # Initial guess for image
@@ -554,7 +592,7 @@ elif page == "Blind Deblurring":
                     
                         # Display results
                         st.markdown("---")
-                        st.markdown("### 📊 Results")
+                        st.markdown("Results")
                     
                         # Show images side by side
                         col1, col2 = st.columns(2)
@@ -574,7 +612,7 @@ elif page == "Blind Deblurring":
                             )
                     
                         # Show estimated PSF
-                        st.markdown("### 🔍 Estimated Point Spread Function (PSF)")
+                        st.markdown("Estimated Point Spread Function (PSF)")
                     
                         col_psf1, col_psf2, col_psf3 = st.columns([1, 2, 1])
                     
@@ -601,7 +639,7 @@ elif page == "Blind Deblurring":
                     
                         # Save results
                         st.markdown("---")
-                        st.markdown("### 💾 Save Results")
+                        st.markdown("Save Results")
                     
                         os.makedirs("blind_richardson_lucy", exist_ok=True)
                     
@@ -619,7 +657,7 @@ elif page == "Blind Deblurring":
                         else:
                             io.imsave(save_path_img, deblurred)
                     
-                        st.success(f"✓ Deblurred image saved as `{save_path_img}`")
+                        st.success(f"Deblurred image saved as `{save_path_img}`")
                     
                         # Save estimated PSF as numpy array and JSON
                         psf_npy_path = os.path.join(
@@ -648,7 +686,7 @@ elif page == "Blind Deblurring":
                         with open(psf_json_path, 'w') as f:
                             json.dump(psf_data, f, indent=2)
                     
-                        st.success(f"✓ Estimated PSF saved as:\n- `{psf_npy_path}`\n- `{psf_json_path}`")
+                        st.success(f"Estimated PSF saved as:\n- `{psf_npy_path}`\n- `{psf_json_path}`")
                     
                         # Download buttons
                         col_dl1, col_dl2 = st.columns(2)
@@ -657,7 +695,7 @@ elif page == "Blind Deblurring":
                             # Download deblurred image
                             with open(save_path_img, "rb") as file:
                                 st.download_button(
-                                    label="📥 Download Deblurred Image",
+                                    label="Download Deblurred Image",
                                     data=file,
                                     file_name=restored_name,
                                     mime="image/png"
@@ -666,7 +704,7 @@ elif page == "Blind Deblurring":
                         with col_dl2:
                             # Download PSF JSON
                             st.download_button(
-                                label="📥 Download Estimated PSF (JSON)",
+                                label="Download Estimated PSF (JSON)",
                                 data=json.dumps(psf_data, indent=2),
                                 file_name=f"estimated_psf_{name_without_ext}.json",
                                 mime="application/json"
@@ -677,13 +715,13 @@ elif page == "Blind Deblurring":
                         status_text.empty()
                     
                     except Exception as e:
-                        st.error(f"❌ Error during blind deconvolution: {e}")
+                        st.error(f"Error during blind deconvolution: {e}")
                         st.exception(e)
 
 
 # --- Page: Denoising ---
 elif page == "Denoising":
-    st.header("3. Image Denoising")
+    st.header("Image Denoising")
 
     uploaded_file = st.file_uploader(
         "Upload an image", type=["jpg", "png", "jpeg"])
@@ -839,7 +877,7 @@ elif page == "Reduce Periodic Noise":
                         st.image(mag_spectrum, caption="FFT Magnitude Spectrum", 
                                use_container_width=True, clamp=True)
 
-                    st.success(f"✓ Noisy image saved at: `{path}`")
+                    st.success(f"Noisy image saved at: `{path}`")
                     st.info(f"Added {len(offsets)} symmetric noise spike(s) at offsets: {offsets}")
 
                 except Exception as e:
@@ -983,7 +1021,7 @@ elif page == "Histogram Enhancement":
                         equalized_img, orig_hist, eq_hist, orig_cdf, eq_cdf = equalize_grayscale(img_np)
 
                         # Display comparison
-                        st.markdown("### 📊 Results")
+                        st.markdown("### Results")
                         col1, col2 = st.columns(2)
 
                         with col1:
@@ -995,7 +1033,7 @@ elif page == "Histogram Enhancement":
                             st.image(equalized_img, use_container_width=True, clamp=True)
 
                         # Histogram comparison
-                        st.markdown("### 📈 Histogram Analysis")
+                        st.markdown("###Histogram Analysis")
                         col1, col2 = st.columns(2)
 
                         with col1:
@@ -1021,7 +1059,7 @@ elif page == "Histogram Enhancement":
                             plt.close()
 
                         # CDF comparison
-                        with st.expander("📊 View CDF (Cumulative Distribution Function)", expanded=False):
+                        with st.expander("View CDF (Cumulative Distribution Function)", expanded=False):
                             col1, col2 = st.columns(2)
 
                             with col1:
@@ -1066,7 +1104,7 @@ elif page == "Histogram Enhancement":
     # ========================================================================
     with tab2:
         st.subheader("RGB Histogram Equalization")
-        st.info("🎨 This method equalizes each RGB channel independently.")
+        st.info("This method equalizes each RGB channel independently.")
         from enhancement_histogram import equalize_color_rgb
 
         uploaded_file = st.file_uploader("Upload a color image", type=["jpg", "png", "jpeg"], key="rgb_eq_upload")
@@ -1087,7 +1125,7 @@ elif page == "Histogram Enhancement":
                         col_img_eq_rgb = cv2.cvtColor(col_img_eq, cv2.COLOR_BGR2RGB)
 
                         # Display comparison
-                        st.markdown("### 📊 Results")
+                        st.markdown("###Results")
                         col1, col2 = st.columns(2)
 
                         with col1:
@@ -1099,7 +1137,7 @@ elif page == "Histogram Enhancement":
                             st.image(col_img_eq_rgb, use_container_width=True, clamp=True)
 
                         # Individual channel comparison
-                        with st.expander("🔍 View Individual Channel Processing", expanded=True):
+                        with st.expander("View Individual Channel Processing", expanded=True):
                             st.markdown("### Original vs Equalized Channels")
 
                             # Original channels
@@ -1127,7 +1165,7 @@ elif page == "Histogram Enhancement":
                                 st.image(channel_data['equalized_channels']['r'], use_container_width=True, clamp=True)
 
                             # Histogram comparison for Blue channel
-                            st.markdown("### 📈 Blue Channel Histogram")
+                            st.markdown("###Blue Channel Histogram")
                             fig, ax = plt.subplots(figsize=(10, 4))
                             ax.plot(channel_data['original_hists']['b'], color='blue', 
                                    linewidth=2, label='Before Equalization', alpha=0.7)
@@ -1159,7 +1197,7 @@ elif page == "Histogram Enhancement":
     # ========================================================================
     with tab3:
         st.subheader("HSV Histogram Equalization")
-        st.info("🌈 This method equalizes only the V (Value/Brightness) channel, preserving color better.")
+        st.info("This method equalizes only the V (Value/Brightness) channel, preserving color better.")
         from enhancement_histogram import equalize_color_hsv
 
         uploaded_file = st.file_uploader("Upload a color image", type=["jpg", "png", "jpeg"], key="hsv_eq_upload")
@@ -1179,7 +1217,7 @@ elif page == "Histogram Enhancement":
                         hsv_eq_rgb, v_orig, v_eq, v_cdf, v_eq_cdf = equalize_color_hsv(img_bgr)
 
                         # Display comparison
-                        st.markdown("### 📊 Results")
+                        st.markdown("###Results")
                         col1, col2 = st.columns(2)
 
                         with col1:
@@ -1193,7 +1231,7 @@ elif page == "Histogram Enhancement":
                         st.success("✓ HSV equalization preserves hue and saturation, only adjusting brightness!")
 
                         # V channel comparison
-                        with st.expander("🔍 View V (Value) Channel Processing", expanded=True):
+                        with st.expander("View V (Value) Channel Processing", expanded=True):
                             st.markdown("### Original vs Equalized V Channel")
 
                             col1, col2 = st.columns(2)
@@ -1205,7 +1243,7 @@ elif page == "Histogram Enhancement":
                                 st.image(v_eq, use_container_width=True, clamp=True)
 
                             # CDF comparison
-                            st.markdown("### 📈 V Channel CDF")
+                            st.markdown("###V Channel CDF")
                             fig, ax = plt.subplots(figsize=(10, 5))
                             ax.plot(v_cdf, color='red', linewidth=2, label='Original CDF')
                             ax.plot(v_eq_cdf, color='green', linewidth=2, label='Equalized CDF')
@@ -1229,14 +1267,14 @@ elif page == "Histogram Enhancement":
                         st.success(f"✓ Equalized image saved at: `{save_path}`")
 
                     except Exception as e:
-                        st.error(f"❌ Error: {e}")
+                        st.error(f"Error: {e}")
                         import traceback
                         st.code(traceback.format_exc())
 
 
 elif page == "Visualization & Comparison":
     st.header("Image Quality Comparison")
-    st.info("📊 Compare original vs recovered/processed images using MSE, PSNR, and SSIM metrics")
+    st.info("Compare original vs recovered/processed images using MSE, PSNR, and SSIM metrics")
 
     from comparison import compare_images, get_metric_interpretation, calculate_difference_map
 
@@ -1357,7 +1395,7 @@ elif page == "Visualization & Comparison":
                 try:
                     # Ensure same dimensions
                     if img1.shape != img2.shape:
-                        st.error(f"❌ Images must have same dimensions! "
+                        st.error(f"Images must have same dimensions! "
                                 f"Original: {img1.shape}, Recovered: {img2.shape}")
                     else:
                         # Calculate metrics
@@ -1368,16 +1406,16 @@ elif page == "Visualization & Comparison":
                         quality = metrics['quality_level']
 
                         if quality == "Perfect Match":
-                            st.success(f"✨ **{quality}** - Images are identical!")
+                            st.success(f"**{quality}** - Images are identical!")
                         elif quality in ["Excellent", "Good"]:
-                            st.success(f"✅ **{quality}** - High quality recovery!")
+                            st.success(f"**{quality}** - High quality recovery!")
                         elif quality == "Fair":
-                            st.warning(f"⚠️ **{quality}** - Moderate quality recovery")
+                            st.warning(f"**{quality}** - Moderate quality recovery")
                         else:
                             st.error(f"❌ **{quality}** - Low quality recovery")
 
                         # Display metrics in columns
-                        st.markdown("## 📊 Quality Metrics")
+                        st.markdown("##Quality Metrics")
                         col1, col2, col3 = st.columns(3)
 
                         # MSE
@@ -1422,7 +1460,7 @@ elif page == "Visualization & Comparison":
 
                         # Metric interpretation table
                         st.markdown("---")
-                        st.markdown("## 📖 Metric Interpretation Guide")
+                        st.markdown("##Metric Interpretation Guide")
 
                         col1, col2, col3 = st.columns(3)
 
@@ -1453,7 +1491,7 @@ elif page == "Visualization & Comparison":
                             """)
 
                         # Visual difference map
-                        with st.expander("🔬 View Difference Map (Visual Comparison)", expanded=True):
+                        with st.expander("View Difference Map (Visual Comparison)", expanded=True):
                             diff_map = calculate_difference_map(img1, img2)
 
                             st.markdown("### Pixel-Level Differences (Enhanced 5x)")
@@ -1480,7 +1518,7 @@ elif page == "Visualization & Comparison":
                                     st.image(diff_map, use_container_width=True, clamp=True)
 
                 except Exception as e:
-                    st.error(f"❌ Error during comparison: {e}")
+                    st.error(f"Error during comparison: {e}")
                     import traceback
                     st.code(traceback.format_exc())
 
