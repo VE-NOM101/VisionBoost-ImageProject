@@ -7,11 +7,6 @@ from PIL import Image
 import matplotlib.pyplot as plt
 import os
 def motion_blur_psf(length=15, angle=0):
-    """
-    Generate a motion blur PSF (Point Spread Function).
-    length: size of the motion
-    angle: direction of the motion in degrees (relative to horizontal).
-    """
     psf = np.zeros((length, length))
     center = length // 2
 
@@ -28,14 +23,7 @@ def motion_blur_psf(length=15, angle=0):
 
 
 def add_noise(image, noise_type="none", noise_level=0 ):
-    """
-    Add noise to an image.
-    noise_type: 'gaussian', 'salt_pepper', or 'none'
-    noise_level: 0-100 (percentage scale)
-                 - Gaussian: variance scales with noise_level
-                 - Salt & Pepper: fraction of corrupted pixels = noise_level/100
-    mean: mean for Gaussian noise
-    """
+
     noisy_image = image.copy().astype(np.float32)
     
     if noise_type.lower() == "gaussian":
@@ -123,43 +111,29 @@ def check_salt_pepper(image):
     print(f"Black pixels: {black_pixels} ({black_pixels/total_pixels*100:.2f}%)")
 
 
-def apply_custom_H_motion_blur(image_path, length, angle, snr_db=30, T=1.0, output_dir="custom_degraded"):
-    """
-    Apply motion blur degradation using H(u,v) frequency domain model.
-
-    Parameters:
-        image_path (str): Path to input image (RGB or grayscale)
-        length (float): Blur length in pixels
-        angle (float): Blur angle in degrees (anticlockwise)
-        snr_db (float): Signal-to-noise ratio in dB
-        T (float): Exposure time
-        output_dir (str): Folder to save degraded outputs
-
-    Returns:
-        (blurred_path, psf_img_path)
-    """
-
+def apply_custom_H_motion_blur(image_path, a, b, snr_db=30, T=1.0, output_dir="custom_degraded"):
     # --- load image ---
     img = np.array(Image.open(image_path).convert("RGB"), dtype=np.float32) / 255.0
     M, N = img.shape[:2]
 
-    # --- motion parameters ---
-    theta_rad = np.deg2rad(angle)
-    a = (length * np.cos(theta_rad)) / T
-    b = (length * np.sin(theta_rad)) / T
-
     # ============================================================
-    # Create degradation function H(u,v)
+    # Create degradation function H(u,v) using a and b directly
     # ============================================================
     def make_H_motion(M, N, a, b, T):
         u = np.fft.fftfreq(M)
         v = np.fft.fftfreq(N)
         U, V = np.meshgrid(u, v, indexing='ij')
+        
+        # Direct use of a and b
         arg = (U * a + V * b)
         eps = 1e-12
         x = np.pi * arg
+        
+        # Sinc function
         sinc = np.sin(x) / np.where(np.abs(x) < eps, 1.0, x)
         sinc = np.where(np.abs(x) < eps, 1.0, sinc)
+        
+        # Motion blur transfer function
         H = T * sinc * np.exp(-1j * x)
         return H
 
@@ -175,12 +149,15 @@ def apply_custom_H_motion_blur(image_path, length, angle, snr_db=30, T=1.0, outp
             G = H * F
             g = np.fft.ifft2(G).real
             g = np.clip(g, 0, 1)
+            
+            # Add noise if SNR is specified
             if snr_db:
                 signal_power = np.mean(g**2)
                 snr_linear = 10 ** (snr_db / 10)
                 noise_power = signal_power / snr_linear
                 noise = np.random.normal(0, np.sqrt(noise_power), g.shape)
                 g = np.clip(g + noise, 0, 1)
+            
             degraded[..., c] = g
         return degraded
 
@@ -190,8 +167,8 @@ def apply_custom_H_motion_blur(image_path, length, angle, snr_db=30, T=1.0, outp
     os.makedirs(output_dir, exist_ok=True)
     base = os.path.splitext(os.path.basename(image_path))[0]
 
-    blurred_path = os.path.join(output_dir, f"Hmotion_{base}.png")
-    psf_img_path = os.path.join(output_dir, f"Hmotion_PSF_{base}.png")
+    blurred_path = os.path.join(output_dir, f"Hmotion_a{a}_b{b}_{base}.png")
+    psf_img_path = os.path.join(output_dir, f"Hmotion_PSF_a{a}_b{b}_{base}.png")
 
     plt.imsave(blurred_path, np.clip(degraded, 0, 1))
     plt.imsave(psf_img_path, np.log1p(np.abs(np.fft.fftshift(H))), cmap="gray")

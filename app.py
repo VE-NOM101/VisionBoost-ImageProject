@@ -4,15 +4,70 @@ import numpy as np
 from skimage import io, img_as_float, img_as_ubyte
 import json
 import os
-st.set_page_config(page_title="VisionBoost - Image Restoration", layout="wide")
+import cv2
+import matplotlib.pyplot as plt
 
-# --- Title & Intro ---
-st.title("VisionBoost - Image Restoration")
-st.write("Non-Blind Deblurring and Denoising Project UI")
+st.set_page_config(
+    page_title="VisionAID",
+    page_icon="🖼️",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# Custom Global Theme (no config file needed)
+st.markdown("""
+    <style>
+        :root {
+            --primary-color: #7b08ff;
+            --secondary-color: #7b08ff;
+            --text-color: #000000;
+            --background-color: #ffffff;
+            --secondary-background-color: #f7f3ff;
+        }
+
+        /* Buttons */
+        div.stButton > button:first-child {
+            background-color: var(--primary-color);
+            color: white;
+            border: none;
+        }
+        div.stButton > button:hover {
+            background-color: #5c00d9;
+            color: white;
+        }
+
+        /* Sliders */
+        .stSlider > div > div > div > div {
+            background-color: var(--primary-color);
+        }
+
+        /* Progress bar */
+        .stProgress > div > div > div > div {
+            background-color: var(--primary-color);
+        }
+
+        /* Radio / Checkbox active color */
+        div[role='radiogroup'] label div[data-baseweb='radio']::before,
+        div[data-testid='stCheckbox'] input:checked + div:before {
+            border-color: var(--primary-color);
+            background-color: var(--primary-color);
+        }
+
+        /* Sidebar header */
+        section[data-testid="stSidebar"] > div:first-child {
+            background-color: var(--secondary-background-color);
+        }
+
+        h1, h2, h3 {
+            color: var(--primary-color);
+        }
+    </style>
+""", unsafe_allow_html=True)
 
 # --- Sidebar for Navigation ---
 st.sidebar.title("Navigation")
 page = st.sidebar.radio("Go to", [
+    "Home",
     "Upload & Degradation",
     "Non-Blind Deblurring",
     "Blind Deblurring",
@@ -20,39 +75,44 @@ page = st.sidebar.radio("Go to", [
     "Reduce Periodic Noise",
     "Histogram Enhancement",
     "Visualization & Comparison",
-])
+],index=0 )
+
+if page == "Home":
+    from home import render_home_page
+    render_home_page()
 
 # --- Page: Upload & Degradation ---
-if page == "Upload & Degradation":
-    st.header("1. Upload & Degradation Simulation")
+elif page == "Upload & Degradation":
+    st.header("Upload & Degradation Simulation")
 
     # Tabs for two degradation modes
-    tab1, tab2 = st.tabs(["🧩 Preset Motion Blur", "🧮 Custom H(u,v) Simulation"])
+    tab1, tab2 = st.tabs(["Preset Motion Blur", "Linear Motion"])
 
-    # ============================================================
-    # 🧩 TAB 1: Preset Motion Blur (Existing Logic)
-    # ============================================================
     with tab1:
         uploaded_file = st.file_uploader("Upload an image", type=["jpg", "png", "jpeg"], key="preset_upload")
-
         if uploaded_file is not None:
             img = Image.open(uploaded_file)
 
             # Resize for display
-            max_width = 600
+            max_width = 300  # smaller width for side-by-side
             w, h = img.size
             if w > max_width:
                 h = int(h * max_width / w)
                 w = max_width
-            img_display = img.resize((w, h))
+                img_display = img.resize((w, h))
 
-            st.image(img_display, caption="Original Image", width=600)
+            # Create 2 columns: left for original image, right for parameters & degraded image
+            col1, col2 = st.columns([1, 1])  # 50%-50% split
 
-            st.subheader("Degradation Parameters")
-            blur_size = st.slider("Motion Blur Length (pixels)", 3, 51, 15, step=2, key="preset_len")
-            blur_angle = st.slider("Motion Blur Angle (degrees)", -90, 90, 0, key="preset_angle")
-            noise_type = st.selectbox("Noise Type", ["None", "Gaussian", "Salt Pepper"], key="preset_noise")
-            noise_level = st.slider("Noise Level (%)", 0, 100, 0, key="preset_level")
+            with col1:
+                st.image(img_display, caption="Original Image", width=w)
+
+            with col2:
+                st.subheader("Degradation Parameters")
+                blur_size = st.slider("Motion Blur Length (pixels)", 3, 51, 15, step=2, key="preset_len")
+                blur_angle = st.slider("Motion Blur Angle (degrees)", -90, 90, 0, key="preset_angle")
+                noise_type = st.selectbox("Noise Type", ["None", "Gaussian", "Salt Pepper"], key="preset_noise")
+                noise_level = st.slider("Noise Level (%)", 0, 100, 0, key="preset_level")
 
             if st.button("Apply Preset Degradation", key="preset_apply"):
                 from upload_degradation import apply_motion_blur
@@ -69,19 +129,26 @@ if page == "Upload & Degradation":
                     output_dir="degraded"
                 )
 
-                st.success(f"✅ Degraded image saved: {blurred_path}")
-                st.success(f"✅ PSF saved: {psf_json_path} & {psf_img_path}")
+                st.success(f"Degraded image saved: {blurred_path}")
+                st.success(f"PSF saved: {psf_json_path} & {psf_img_path}")
+
 
                 degraded_img = Image.open(blurred_path)
-                w, h = degraded_img.size
-                if w > max_width:
-                    h = int(h * max_width / w)
-                    w = max_width
-                degraded_display = degraded_img.resize((w, h))
-                st.image(degraded_display, caption="Degraded Image", width=600)
+                w2, h2 = degraded_img.size
+                if w2 > max_width:
+                    h2 = int(h2 * max_width / w2)
+                    w2 = max_width
+                    degraded_display = degraded_img.resize((w2, h2))
 
                 psf_img = Image.open(psf_img_path)
-                st.image(psf_img, caption="PSF (visual)", width=400)
+                psf_display = psf_img.resize((300, 300))  # optional resize for PSF visualization
+
+                #    Display degraded image and PSF side by side
+                col3, col4 = st.columns([1, 1])
+                with col3:
+                    st.image(degraded_display, caption="Degraded Image", width=w2)
+                with col4:
+                    st.image(psf_display, caption="PSF (visual)", width=300)
 
     # ============================================================
     # 🧮 TAB 2: Custom H(u,v) Degradation (Mathematical Function)
@@ -93,17 +160,31 @@ if page == "Upload & Degradation":
 
         if uploaded_file_2 is not None:
             img = Image.open(uploaded_file_2)
-            st.image(img, caption="Original Image", width=600)
 
-            st.subheader("Custom H(u,v) Parameters")
-            blur_size = st.slider("Motion Blur Length (pixels)", 1, 50, 15)
-            blur_angle = st.slider("Motion Blur Angle (degrees, anticlockwise)", -90, 90, 0)
-            snr_db = st.slider("SNR (dB)", 10, 50, 30)
-            T = st.number_input("Exposure Time (T)", min_value=0.1, max_value=5.0, value=1.0, step=0.1)
+            # Resize for display
+            max_width = 300
+            w, h = img.size
+            if w > max_width:
+                h = int(h * max_width / w)
+                w = max_width
+            img_display = img.resize((w, h))
 
-            if st.button("Apply H(u,v) Degradation"):
+            # --- Side by side: Original Image | Parameters ---
+            col1, col2 = st.columns([1, 1])
+            with col1:
+                st.image(img_display, caption="Original Image", width=w)
+            with col2:
+                st.subheader("Custom H(u,v) Parameters")
+                blur_size = st.slider("Motion Blur Length (pixels)", 1, 50, 15)
+                blur_angle = st.slider("Motion Blur Angle (degrees, anticlockwise)", -90, 90, 0)
+                snr_db = st.slider("SNR (dB)", 10, 50, 30)
+                T = st.number_input("Exposure Time (T)", min_value=0.1, max_value=5.0, value=1.0, step=0.1)
+
+                apply_button = st.button("Apply H(u,v) Degradation")
+
+            # --- Apply degradation ---
+            if apply_button:
                 from upload_degradation import apply_custom_H_motion_blur
-
                 temp_path = "temp_uploaded_image.png"
                 img.save(temp_path)
 
@@ -116,18 +197,32 @@ if page == "Upload & Degradation":
                     output_dir="custom_degraded"
                 )
 
-                st.success(f"✅ Degraded image saved: {blurred_path}")
-                st.success(f"✅ PSF visualization saved: {psf_img_path}")
+                st.success(f"Degraded image saved: {blurred_path}")
+                st.success(f"PSF visualization saved: {psf_img_path}")
 
+            # Load images and resize for side by side display
                 degraded_img = Image.open(blurred_path)
-                st.image(degraded_img, caption="Degraded Image (via H(u,v))", width=600)
+                w2, h2 = degraded_img.size
+                if w2 > max_width:
+                    h2 = int(h2 * max_width / w2)
+                    w2 = max_width
+                degraded_display = degraded_img.resize((w2, h2))
 
                 psf_img = Image.open(psf_img_path)
-                st.image(psf_img, caption="|H(u,v)| (log magnitude)", width=400)
+                psf_display = psf_img.resize((300, 300))  # optional fixed size
+
+                # --- Side by side: Degraded Image | PSF ---
+                col3, col4 = st.columns([1, 1])
+                with col3:
+                    st.image(degraded_display, caption="Degraded Image (via H(u,v))", width=w2)
+                with col4:
+                    st.image(psf_display, caption="|H(u,v)| (log magnitude)", width=300)
 
 
 # --- Page: Deblurring ---
 elif page == "Non-Blind Deblurring":
+
+    st.header("Non-Blind Deblurring")
 
     method = st.radio("Choose Deblurring Method", [
                       "Wiener Filtering","Wiener Filtering (Uniform Motion)", "Richardson-Lucy"])
@@ -295,11 +390,11 @@ elif page == "Non-Blind Deblurring":
                 st.image(H_mag, caption="|H(u,v)| (log magnitude)", width=400)
 
 elif page == "Blind Deblurring":
-
+    st.header("Blind Deblurring")
     method = st.radio("Choose Deblurring Method", ["Blind-Richardson-Lucy"])
     if method == "Blind-Richardson-Lucy":
         st.subheader("Blind Richardson-Lucy Deconvolution")
-        st.info("ℹ️ Blind deconvolution estimates BOTH the sharp image AND the blur kernel (PSF) simultaneously.")
+        st.info("Blind deconvolution estimates BOTH the sharp image AND the blur kernel (PSF) simultaneously.")
     
         # Step 1: Upload blurred/degraded image
         uploaded_img = st.file_uploader(
@@ -586,7 +681,6 @@ elif page == "Blind Deblurring":
                         st.exception(e)
 
 
-
 # --- Page: Denoising ---
 elif page == "Denoising":
     st.header("3. Image Denoising")
@@ -692,58 +786,703 @@ elif page == "Denoising":
 
             st.success(f"Denoised image saved to `{output_path}`")
 
-
-# --- Page: Segmentation & Edges ---
+# --- Page: Reduce Periodic Noise ---
 elif page == "Reduce Periodic Noise":
-    tab1, tab2 = st.tabs(["Periodic Noise Generation", "Periodic Noise Removal Demo"])
+    st.header("Periodic Noise Reduction (Grayscale)")
+    tab1, tab2 = st.tabs(["Generate Periodic Noise", "Remove Periodic Noise"])
 
+    # ========================================================================
+    # TAB 1: Add Periodic Noise
+    # ========================================================================
     with tab1:
-        from periodic_noise import add_periodic_noise_freq
+        st.subheader("Add Periodic Noise to Grayscale Image")
+        from periodic_noise import add_periodic_noise_grayscale
 
-        uploaded_file = st.file_uploader("Upload an image", type=["jpg","png"])
+        uploaded_file = st.file_uploader("Upload a grayscale image", type=["jpg", "png", "jpeg"], key="noise_gen_upload")
+
         if uploaded_file is not None:
-            img = Image.open(uploaded_file).convert("L") 
-            img_np = np.array(img)
-            st.image(img_np, caption="Original Image", use_container_width=False)
-        
-        # User inputs for frequency-domain noise
-            offsets_text = st.text_input("Enter spike offsets as u,v pairs (comma-separated, e.g. 50,30;70,-40)", 
-                                     "50,30;70,-40")
-            percent_amp = st.slider("Amplitude (% of max FFT)", 1, 20, 5)
+            # Load and convert to grayscale
+            img_pil = Image.open(uploaded_file).convert('L')
+            img_np = np.array(img_pil)
+
+            st.image(img_np, caption="Original Grayscale Image", use_container_width=False, clamp=True)
+
+            # Noise parameters
+            st.markdown("**Noise Parameters**")
+            offsets_text = st.text_input(
+                "Enter spike offsets as u,v pairs (semicolon-separated)",
+                "50,30;70,-40",
+                help="Example: 50,30;70,-40 adds two noise sources"
+            )
+            percent_amp = st.slider("Amplitude (% of max FFT magnitude)", 1, 20, 5)
             save_name = st.text_input("Save noisy image as", "noisy_periodic.png")
-        
+
             if st.button("Generate Periodic Noise"):
-                # Parse offsets input
                 try:
+                    # Parse offsets
                     offsets = []
-                    for pair in offsets_text.split(";"):
-                        u,v = map(int, pair.split(","))
-                        offsets.append((u,v))
-                
-                    noisy_img, mag_spectrum, path = add_periodic_noise_freq(
-                        img_np, offsets, percent_amp=percent_amp/100, save_name=save_name
+                    for pair in offsets_text.strip().split(";"):
+                        u, v = map(int, pair.strip().split(","))
+                        offsets.append((u, v))
+
+                    # Generate noise
+                    noisy_img, mag_spectrum, path = add_periodic_noise_grayscale(
+                        img_np, offsets, percent_amp=percent_amp/100.0, save_name=save_name
                     )
+
+                    # Display results
                     col1, col2 = st.columns(2)
                     with col1:
-                        st.image(noisy_img.astype(np.uint8), caption="Noisy Image", use_container_width=True)
+                        st.image(noisy_img.astype(np.uint8), caption="Noisy Image", 
+                               use_container_width=True, clamp=True)
                     with col2:
-                        st.image(mag_spectrum, caption="Magnitude Spectrum of the noisy image", use_container_width=True)
+                        st.image(mag_spectrum, caption="FFT Magnitude Spectrum", 
+                               use_container_width=True, clamp=True)
 
-                    st.success(f"Noisy image saved at: {path}")
-            
+                    st.success(f"✓ Noisy image saved at: `{path}`")
+                    st.info(f"Added {len(offsets)} symmetric noise spike(s) at offsets: {offsets}")
+
                 except Exception as e:
-                    st.error(f"Error parsing offsets or generating noise: {e}")
-    with tab2:
-        st.success('Hellow')
+                    st.error(f"Error generating periodic noise: {e}")
+                    import traceback
+                    st.code(traceback.format_exc())
 
+    # ========================================================================
+    # TAB 2: Remove Periodic Noise
+    # ========================================================================
+    with tab2:
+        st.subheader("Remove Periodic Noise using Butterworth Notch Filter")
+        from periodic_noise import remove_periodic_noise_grayscale
+
+        uploaded_noisy = st.file_uploader("Upload a noisy grayscale image", 
+                                         type=["jpg", "png", "jpeg"], 
+                                         key="noise_remove_upload")
+
+        if uploaded_noisy is not None:
+            # Load and convert to grayscale
+            img_pil = Image.open(uploaded_noisy).convert('L')
+            img_np = np.array(img_pil)
+
+            st.image(img_np, caption="Uploaded Noisy Image", use_container_width=False, clamp=True)
+
+            # Filter parameters
+            st.markdown("**Filter Parameters**")
+            col1, col2, col3 = st.columns(3)
+
+            with col1:
+                D0 = st.slider("Notch Radius (D0)", 1, 50, 10, 
+                             help="Radius of the notch filter around detected spikes")
+                n = st.slider("Filter Order (n)", 1, 10, 2, 
+                            help="Higher order = sharper transition")
+
+            with col2:
+                dc_mask_radius = st.slider("DC Mask Radius", 5, 30, 10, 
+                                          help="Radius to mask DC component during detection")
+                threshold_factor = st.slider("Threshold Factor", 1.0, 10.0, 3.0, 0.5, 
+                                            help="Sensitivity for spike detection (lower = more sensitive)")
+
+            with col3:
+                nms_kernel_size = st.slider("NMS Kernel Size", 5, 51, 21, 2, 
+                                           help="Non-maximum suppression window size")
+
+            # Output filename
+            save_recovered_name = st.text_input("Save recovered image as", "recovered_image.png")
+
+            if st.button("Remove Periodic Noise"):
+                with st.spinner("Processing..."):
+                    try:
+                        # Process image
+                        recovered, coords, H, mag_spec, binary_mask, nms_result = remove_periodic_noise_grayscale(
+                            img_np,
+                            D0=D0,
+                            n=n,
+                            dc_mask_radius=dc_mask_radius,
+                            threshold_factor=threshold_factor,
+                            nms_kernel_size=nms_kernel_size
+                        )
+
+                        # Save recovered image
+                        output_folder = "recovered_images"
+                        if not os.path.exists(output_folder):
+                            os.makedirs(output_folder)
+                        save_path = os.path.join(output_folder, save_recovered_name)
+                        cv2.imwrite(save_path, recovered.astype(np.uint8))
+
+                        coords_list = [tuple(map(int, c)) for c in coords]
+                        # Display results
+                        st.success(f"✓ Detected {len(coords_list)} spike(s) at coordinates: {coords_list}")
+                        st.success(f"✓ Recovered image saved at: `{save_path}`")
+
+                        # Show comparison
+                        st.markdown("### Results Comparison")
+                        col1, col2 = st.columns(2)
+
+                        with col1:
+                            st.markdown("**Noisy Image**")
+                            st.image(img_np, use_container_width=True, clamp=True)
+
+                        with col2:
+                            st.markdown("**Recovered Image**")
+                            st.image(recovered.astype(np.uint8), use_container_width=True, clamp=True)
+
+                        # Show processing details
+                        with st.expander("View Processing Details"):
+                            st.markdown("### Frequency Domain Analysis")
+
+                            col1, col2, col3, col4 = st.columns(4)
+
+                            with col1:
+                                st.markdown("**FFT Magnitude**")
+                                mag_display = cv2.normalize(mag_spec, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+                                st.image(mag_display, use_container_width=True, clamp=True)
+
+                            with col2:
+                                st.markdown("**Thresholded Peaks**")
+                                st.image(binary_mask*255, use_container_width=True, clamp=True)
+
+                            with col3:
+                                st.markdown("**After NMS**")
+                                st.image(nms_result, use_container_width=True, clamp=True)
+
+                            with col4:
+                                st.markdown("**Butterworth Filter**")
+                                H_display = cv2.normalize(H, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+                                st.image(H_display, use_container_width=True, clamp=True)
+
+                    except Exception as e:
+                        st.error(f"Error during noise removal: {e}")
+                        import traceback
+                        st.code(traceback.format_exc())
 # --- Page: Segmentation & Edges ---
 elif page == "Histogram Enhancement":
-    edge_method = st.radio("Edge Detector", ["Canny", "Sobel"])
-    threshold = st.slider("Threshold", 0, 255, 128)
-    st.button("Run Edge Detection")
+    st.header("Histogram Equalization")
+
+    # Sub-tabs for different types of equalization
+    tab1, tab2, tab3 = st.tabs(["Grayscale Equalization", "RGB Equalization", "HSV Equalization"])
+
+    # ========================================================================
+    # TAB 1: Grayscale Histogram Equalization
+    # ========================================================================
+    with tab1:
+        st.subheader("Grayscale Histogram Equalization")
+        from enhancement_histogram import equalize_grayscale
+
+        uploaded_file = st.file_uploader("Upload a grayscale image", type=["jpg", "png", "jpeg"], key="gray_eq_upload")
+
+        if uploaded_file is not None:
+            # Load and convert to grayscale
+            img_pil = Image.open(uploaded_file).convert('L')
+            img_np = np.array(img_pil)
+
+            st.image(img_np, caption="Original Grayscale Image", use_container_width=False, clamp=True)
+
+            if st.button("Equalize Histogram", type="primary", key="gray_eq_btn"):
+                with st.spinner("Processing..."):
+                    try:
+                        # Equalize
+                        equalized_img, orig_hist, eq_hist, orig_cdf, eq_cdf = equalize_grayscale(img_np)
+
+                        # Display comparison
+                        st.markdown("### 📊 Results")
+                        col1, col2 = st.columns(2)
+
+                        with col1:
+                            st.markdown("**Original Image**")
+                            st.image(img_np, use_container_width=True, clamp=True)
+
+                        with col2:
+                            st.markdown("**Equalized Image** ✨")
+                            st.image(equalized_img, use_container_width=True, clamp=True)
+
+                        # Histogram comparison
+                        st.markdown("### 📈 Histogram Analysis")
+                        col1, col2 = st.columns(2)
+
+                        with col1:
+                            st.markdown("**Original Histogram**")
+                            fig, ax = plt.subplots(figsize=(8, 4))
+                            ax.plot(orig_hist, color='red', linewidth=2)
+                            ax.set_xlabel('Pixel Intensity')
+                            ax.set_ylabel('Frequency')
+                            ax.set_xlim([0, 256])
+                            ax.grid(True, alpha=0.3)
+                            st.pyplot(fig)
+                            plt.close()
+
+                        with col2:
+                            st.markdown("**Equalized Histogram**")
+                            fig, ax = plt.subplots(figsize=(8, 4))
+                            ax.plot(eq_hist, color='green', linewidth=2)
+                            ax.set_xlabel('Pixel Intensity')
+                            ax.set_ylabel('Frequency')
+                            ax.set_xlim([0, 256])
+                            ax.grid(True, alpha=0.3)
+                            st.pyplot(fig)
+                            plt.close()
+
+                        # CDF comparison
+                        with st.expander("📊 View CDF (Cumulative Distribution Function)", expanded=False):
+                            col1, col2 = st.columns(2)
+
+                            with col1:
+                                st.markdown("**Original CDF**")
+                                fig, ax = plt.subplots(figsize=(8, 4))
+                                ax.plot(orig_cdf, color='blue', linewidth=2)
+                                ax.set_xlabel('Pixel Intensity')
+                                ax.set_ylabel('CDF')
+                                ax.set_xlim([0, 256])
+                                ax.set_ylim([0, 1])
+                                ax.grid(True, alpha=0.3)
+                                st.pyplot(fig)
+                                plt.close()
+
+                            with col2:
+                                st.markdown("**Equalized CDF**")
+                                fig, ax = plt.subplots(figsize=(8, 4))
+                                ax.plot(eq_cdf, color='orange', linewidth=2)
+                                ax.set_xlabel('Pixel Intensity')
+                                ax.set_ylabel('CDF')
+                                ax.set_xlim([0, 256])
+                                ax.set_ylim([0, 1])
+                                ax.grid(True, alpha=0.3)
+                                st.pyplot(fig)
+                                plt.close()
+
+                        # Save option
+                        output_folder = "enhanced_images"
+                        if not os.path.exists(output_folder):
+                            os.makedirs(output_folder)
+                        save_path = os.path.join(output_folder, "gray_equalized.png")
+                        cv2.imwrite(save_path, equalized_img)
+                        st.success(f"✓ Equalized image saved at: `{save_path}`")
+
+                    except Exception as e:
+                        st.error(f"❌ Error: {e}")
+                        import traceback
+                        st.code(traceback.format_exc())
+
+    # ========================================================================
+    # TAB 2: RGB Color Histogram Equalization
+    # ========================================================================
+    with tab2:
+        st.subheader("RGB Histogram Equalization")
+        st.info("🎨 This method equalizes each RGB channel independently.")
+        from enhancement_histogram import equalize_color_rgb
+
+        uploaded_file = st.file_uploader("Upload a color image", type=["jpg", "png", "jpeg"], key="rgb_eq_upload")
+
+        if uploaded_file is not None:
+            # Load color image
+            img_pil = Image.open(uploaded_file).convert('RGB')
+            img_rgb = np.array(img_pil)
+            img_bgr = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR)
+
+            st.image(img_rgb, caption="Original Color Image", use_container_width=False, clamp=True)
+
+            if st.button("Equalize RGB Channels", type="primary", key="rgb_eq_btn"):
+                with st.spinner("Processing..."):
+                    try:
+                        # Equalize
+                        col_img_eq, channel_data = equalize_color_rgb(img_bgr)
+                        col_img_eq_rgb = cv2.cvtColor(col_img_eq, cv2.COLOR_BGR2RGB)
+
+                        # Display comparison
+                        st.markdown("### 📊 Results")
+                        col1, col2 = st.columns(2)
+
+                        with col1:
+                            st.markdown("**Original Image**")
+                            st.image(img_rgb, use_container_width=True, clamp=True)
+
+                        with col2:
+                            st.markdown("**Equalized Image** ✨")
+                            st.image(col_img_eq_rgb, use_container_width=True, clamp=True)
+
+                        # Individual channel comparison
+                        with st.expander("🔍 View Individual Channel Processing", expanded=True):
+                            st.markdown("### Original vs Equalized Channels")
+
+                            # Original channels
+                            col1, col2, col3 = st.columns(3)
+                            with col1:
+                                st.markdown("**Blue (Original)**")
+                                st.image(channel_data['original_channels']['b'], use_container_width=True, clamp=True)
+                            with col2:
+                                st.markdown("**Green (Original)**")
+                                st.image(channel_data['original_channels']['g'], use_container_width=True, clamp=True)
+                            with col3:
+                                st.markdown("**Red (Original)**")
+                                st.image(channel_data['original_channels']['r'], use_container_width=True, clamp=True)
+
+                            # Equalized channels
+                            col1, col2, col3 = st.columns(3)
+                            with col1:
+                                st.markdown("**Blue (Equalized)**")
+                                st.image(channel_data['equalized_channels']['b'], use_container_width=True, clamp=True)
+                            with col2:
+                                st.markdown("**Green (Equalized)**")
+                                st.image(channel_data['equalized_channels']['g'], use_container_width=True, clamp=True)
+                            with col3:
+                                st.markdown("**Red (Equalized)**")
+                                st.image(channel_data['equalized_channels']['r'], use_container_width=True, clamp=True)
+
+                            # Histogram comparison for Blue channel
+                            st.markdown("### 📈 Blue Channel Histogram")
+                            fig, ax = plt.subplots(figsize=(10, 4))
+                            ax.plot(channel_data['original_hists']['b'], color='blue', 
+                                   linewidth=2, label='Before Equalization', alpha=0.7)
+                            ax.plot(channel_data['equalized_hists']['b'], color='orange', 
+                                   linewidth=2, label='After Equalization', alpha=0.7)
+                            ax.set_xlabel('Pixel Intensity')
+                            ax.set_ylabel('Frequency')
+                            ax.set_xlim([0, 256])
+                            ax.legend()
+                            ax.grid(True, alpha=0.3)
+                            st.pyplot(fig)
+                            plt.close()
+
+                        # Save option
+                        output_folder = "enhanced_images"
+                        if not os.path.exists(output_folder):
+                            os.makedirs(output_folder)
+                        save_path = os.path.join(output_folder, "rgb_equalized.png")
+                        cv2.imwrite(save_path, col_img_eq)
+                        st.success(f"✓ Equalized image saved at: `{save_path}`")
+
+                    except Exception as e:
+                        st.error(f"❌ Error: {e}")
+                        import traceback
+                        st.code(traceback.format_exc())
+
+    # ========================================================================
+    # TAB 3: HSV Histogram Equalization (Better color preservation)
+    # ========================================================================
+    with tab3:
+        st.subheader("HSV Histogram Equalization")
+        st.info("🌈 This method equalizes only the V (Value/Brightness) channel, preserving color better.")
+        from enhancement_histogram import equalize_color_hsv
+
+        uploaded_file = st.file_uploader("Upload a color image", type=["jpg", "png", "jpeg"], key="hsv_eq_upload")
+
+        if uploaded_file is not None:
+            # Load color image
+            img_pil = Image.open(uploaded_file).convert('RGB')
+            img_rgb = np.array(img_pil)
+            img_bgr = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR)
+
+            st.image(img_rgb, caption="Original Color Image", use_container_width=False, clamp=True)
+
+            if st.button("Equalize V Channel (HSV)", type="primary", key="hsv_eq_btn"):
+                with st.spinner("Processing..."):
+                    try:
+                        # Equalize
+                        hsv_eq_rgb, v_orig, v_eq, v_cdf, v_eq_cdf = equalize_color_hsv(img_bgr)
+
+                        # Display comparison
+                        st.markdown("### 📊 Results")
+                        col1, col2 = st.columns(2)
+
+                        with col1:
+                            st.markdown("**Original Image**")
+                            st.image(img_rgb, use_container_width=True, clamp=True)
+
+                        with col2:
+                            st.markdown("**HSV Equalized Image** ✨")
+                            st.image(hsv_eq_rgb, use_container_width=True, clamp=True)
+
+                        st.success("✓ HSV equalization preserves hue and saturation, only adjusting brightness!")
+
+                        # V channel comparison
+                        with st.expander("🔍 View V (Value) Channel Processing", expanded=True):
+                            st.markdown("### Original vs Equalized V Channel")
+
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                st.markdown("**V Channel (Original)**")
+                                st.image(v_orig, use_container_width=True, clamp=True)
+                            with col2:
+                                st.markdown("**V Channel (Equalized)**")
+                                st.image(v_eq, use_container_width=True, clamp=True)
+
+                            # CDF comparison
+                            st.markdown("### 📈 V Channel CDF")
+                            fig, ax = plt.subplots(figsize=(10, 5))
+                            ax.plot(v_cdf, color='red', linewidth=2, label='Original CDF')
+                            ax.plot(v_eq_cdf, color='green', linewidth=2, label='Equalized CDF')
+                            ax.set_xlabel('Pixel Intensity')
+                            ax.set_ylabel('CDF')
+                            ax.set_xlim([0, 256])
+                            ax.set_ylim([0, 1])
+                            ax.legend()
+                            ax.grid(True, alpha=0.3)
+                            st.pyplot(fig)
+                            plt.close()
+
+                        # Save option
+                        output_folder = "enhanced_images"
+                        if not os.path.exists(output_folder):
+                            os.makedirs(output_folder)
+                        save_path = os.path.join(output_folder, "hsv_equalized.png")
+                        # Convert back to BGR for saving
+                        hsv_eq_bgr = cv2.cvtColor(hsv_eq_rgb, cv2.COLOR_RGB2BGR)
+                        cv2.imwrite(save_path, hsv_eq_bgr)
+                        st.success(f"✓ Equalized image saved at: `{save_path}`")
+
+                    except Exception as e:
+                        st.error(f"❌ Error: {e}")
+                        import traceback
+                        st.code(traceback.format_exc())
 
 
 elif page == "Visualization & Comparison":
-    edge_method = st.radio("Edge Detector", ["Canny", "Sobel"])
-    threshold = st.slider("Threshold", 0, 255, 128)
-    st.button("Run Edge Detection")
+    st.header("Image Quality Comparison")
+    st.info("📊 Compare original vs recovered/processed images using MSE, PSNR, and SSIM metrics")
+
+    from comparison import compare_images, get_metric_interpretation, calculate_difference_map
+
+    # Two methods: Upload two images OR select from folders
+    comparison_method = st.radio(
+        "Select Comparison Method",
+        ["Upload Two Images", "Select from Saved Folders"],
+        horizontal=True
+    )
+
+    img1 = None
+    img2 = None
+    img1_name = "Image 1"
+    img2_name = "Image 2"
+
+    # ========================================================================
+    # Method 1: Upload Two Images
+    # ========================================================================
+    if comparison_method == "Upload Two Images":
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.subheader("Original Image")
+            uploaded_orig = st.file_uploader("Upload original image", 
+                                            type=["jpg", "png", "jpeg"], 
+                                            key="orig_upload")
+            if uploaded_orig is not None:
+                img_pil = Image.open(uploaded_orig)
+                # Convert to numpy array
+                if img_pil.mode == 'L':
+                    img1 = np.array(img_pil)
+                else:
+                    img1 = np.array(img_pil.convert('RGB'))
+                img1_name = "Original"
+                st.image(img1, caption="Original Image", use_container_width=True, clamp=True)
+
+        with col2:
+            st.subheader("Recovered/Processed Image")
+            uploaded_recovered = st.file_uploader("Upload recovered/processed image", 
+                                                  type=["jpg", "png", "jpeg"], 
+                                                  key="recovered_upload")
+            if uploaded_recovered is not None:
+                img_pil = Image.open(uploaded_recovered)
+                # Convert to numpy array
+                if img_pil.mode == 'L':
+                    img2 = np.array(img_pil)
+                else:
+                    img2 = np.array(img_pil.convert('RGB'))
+                img2_name = "Recovered"
+                st.image(img2, caption="Recovered Image", use_container_width=True, clamp=True)
+
+    # ========================================================================
+    # Method 2: Select from Folders
+    # ========================================================================
+    else:
+        import glob
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.subheader("Select Original Image")
+            # Look for images in common folders
+            orig_folders = [".", "images", "original_images", "uploads"]
+            orig_images = []
+            for folder in orig_folders:
+                if os.path.exists(folder):
+                    orig_images.extend(glob.glob(os.path.join(folder, "*.jpg")))
+                    orig_images.extend(glob.glob(os.path.join(folder, "*.png")))
+                    orig_images.extend(glob.glob(os.path.join(folder, "*.jpeg")))
+
+            if orig_images:
+                selected_orig = st.selectbox("Choose original image", orig_images, key="select_orig")
+                if selected_orig:
+                    img1 = cv2.imread(selected_orig)
+                    if img1 is not None:
+                        if len(img1.shape) == 2:
+                            pass  # Grayscale
+                        else:
+                            img1 = cv2.cvtColor(img1, cv2.COLOR_BGR2RGB)
+                        img1_name = os.path.basename(selected_orig)
+                        st.image(img1, caption=f"Original: {img1_name}", use_container_width=True, clamp=True)
+            else:
+                st.warning("No images found in common folders")
+
+        with col2:
+            st.subheader("Select Recovered Image")
+            # Look for images in recovered/processed folders
+            recovered_folders = ["recovered_images", "enhanced_images", "noisy_images", "denoised"]
+            recovered_images = []
+            for folder in recovered_folders:
+                if os.path.exists(folder):
+                    recovered_images.extend(glob.glob(os.path.join(folder, "*.jpg")))
+                    recovered_images.extend(glob.glob(os.path.join(folder, "*.png")))
+                    recovered_images.extend(glob.glob(os.path.join(folder, "*.jpeg")))
+
+            if recovered_images:
+                selected_recovered = st.selectbox("Choose recovered image", recovered_images, key="select_recovered")
+                if selected_recovered:
+                    img2 = cv2.imread(selected_recovered)
+                    if img2 is not None:
+                        if len(img2.shape) == 2:
+                            pass  # Grayscale
+                        else:
+                            img2 = cv2.cvtColor(img2, cv2.COLOR_BGR2RGB)
+                        img2_name = os.path.basename(selected_recovered)
+                        st.image(img2, caption=f"Recovered: {img2_name}", use_container_width=True, clamp=True)
+            else:
+                st.warning("No images found in recovered folders")
+
+    # ========================================================================
+    # Compare Images if Both are Loaded
+    # ========================================================================
+    if img1 is not None and img2 is not None:
+        st.markdown("---")
+
+        if st.button("🔍 Compare Images", type="primary"):
+            with st.spinner("Calculating quality metrics..."):
+                try:
+                    # Ensure same dimensions
+                    if img1.shape != img2.shape:
+                        st.error(f"❌ Images must have same dimensions! "
+                                f"Original: {img1.shape}, Recovered: {img2.shape}")
+                    else:
+                        # Calculate metrics
+                        metrics = compare_images(img1, img2)
+
+                        # Display overall quality
+                        st.markdown("## 🎯 Overall Quality Assessment")
+                        quality = metrics['quality_level']
+
+                        if quality == "Perfect Match":
+                            st.success(f"✨ **{quality}** - Images are identical!")
+                        elif quality in ["Excellent", "Good"]:
+                            st.success(f"✅ **{quality}** - High quality recovery!")
+                        elif quality == "Fair":
+                            st.warning(f"⚠️ **{quality}** - Moderate quality recovery")
+                        else:
+                            st.error(f"❌ **{quality}** - Low quality recovery")
+
+                        # Display metrics in columns
+                        st.markdown("## 📊 Quality Metrics")
+                        col1, col2, col3 = st.columns(3)
+
+                        # MSE
+                        with col1:
+                            mse_val = metrics['mse']
+                            mse_color, mse_interp = get_metric_interpretation('mse', mse_val)
+
+                            st.markdown(f"### MSE")
+                            st.markdown(f"<h1 style='text-align: center; color: {mse_color};'>{mse_val:.2f}</h1>", 
+                                      unsafe_allow_html=True)
+                            st.markdown(f"<p style='text-align: center;'>{mse_interp}</p>", 
+                                      unsafe_allow_html=True)
+                            st.caption("Lower is better (0 = perfect)")
+
+                        # PSNR
+                        with col2:
+                            psnr_val = metrics['psnr']
+                            psnr_color, psnr_interp = get_metric_interpretation('psnr', psnr_val)
+
+                            st.markdown(f"### PSNR")
+                            if psnr_val == float('inf'):
+                                st.markdown(f"<h1 style='text-align: center; color: {psnr_color};'>∞ dB</h1>", 
+                                          unsafe_allow_html=True)
+                            else:
+                                st.markdown(f"<h1 style='text-align: center; color: {psnr_color};'>{psnr_val:.2f} dB</h1>", 
+                                          unsafe_allow_html=True)
+                            st.markdown(f"<p style='text-align: center;'>{psnr_interp}</p>", 
+                                      unsafe_allow_html=True)
+                            st.caption("Higher is better (>30 dB = good)")
+
+                        # SSIM
+                        with col3:
+                            ssim_val = metrics['ssim']
+                            ssim_color, ssim_interp = get_metric_interpretation('ssim', ssim_val)
+
+                            st.markdown(f"### SSIM")
+                            st.markdown(f"<h1 style='text-align: center; color: {ssim_color};'>{ssim_val:.4f}</h1>", 
+                                      unsafe_allow_html=True)
+                            st.markdown(f"<p style='text-align: center;'>{ssim_interp}</p>", 
+                                      unsafe_allow_html=True)
+                            st.caption("Higher is better (1 = perfect)")
+
+                        # Metric interpretation table
+                        st.markdown("---")
+                        st.markdown("## 📖 Metric Interpretation Guide")
+
+                        col1, col2, col3 = st.columns(3)
+
+                        with col1:
+                            st.markdown("**MSE (Mean Squared Error)**")
+                            st.markdown("""
+                            - 🟢 **< 100**: Excellent
+                            - 🟡 **100-1000**: Good to Fair
+                            - 🔴 **> 1000**: Poor
+                            """)
+
+                        with col2:
+                            st.markdown("**PSNR (dB)**")
+                            st.markdown("""
+                            - 🟢 **> 40 dB**: Excellent
+                            - 🟢 **30-40 dB**: Good
+                            - 🟡 **20-30 dB**: Fair
+                            - 🔴 **< 20 dB**: Poor
+                            """)
+
+                        with col3:
+                            st.markdown("**SSIM**")
+                            st.markdown("""
+                            - 🟢 **> 0.95**: Excellent
+                            - 🟢 **0.85-0.95**: Good
+                            - 🟡 **0.7-0.85**: Fair
+                            - 🔴 **< 0.7**: Poor
+                            """)
+
+                        # Visual difference map
+                        with st.expander("🔬 View Difference Map (Visual Comparison)", expanded=True):
+                            diff_map = calculate_difference_map(img1, img2)
+
+                            st.markdown("### Pixel-Level Differences (Enhanced 5x)")
+                            st.markdown("*Brighter areas indicate larger differences between images*")
+
+                            col1, col2, col3 = st.columns(3)
+
+                            with col1:
+                                st.markdown("**Original**")
+                                st.image(img1, use_container_width=True, clamp=True)
+
+                            with col2:
+                                st.markdown("**Recovered**")
+                                st.image(img2, use_container_width=True, clamp=True)
+
+                            with col3:
+                                st.markdown("**Difference Map**")
+                                # Apply red colormap for better visualization
+                                if len(diff_map.shape) == 2:
+                                    diff_colored = cv2.applyColorMap(diff_map, cv2.COLORMAP_HOT)
+                                    st.image(cv2.cvtColor(diff_colored, cv2.COLOR_BGR2RGB), 
+                                           use_container_width=True, clamp=True)
+                                else:
+                                    st.image(diff_map, use_container_width=True, clamp=True)
+
+                except Exception as e:
+                    st.error(f"❌ Error during comparison: {e}")
+                    import traceback
+                    st.code(traceback.format_exc())
+
+    else:
+        st.info("👆 Please upload or select both images to compare")
