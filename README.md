@@ -58,37 +58,37 @@ VisionBoost/
 
 ### Home Interface
 
-![Home](images/home.png)
+![Home](Report_and_Figures/home.png)
 
 ---
 
 ### Motion Blur Generation
 
-![Motion Blur](images/motion_blur.png)
+![Motion Blur](Report_and_Figures/blurred_sp.png)
 
 ---
 
 ### Noise Addition
 
-![Noise](images/noise.png)
+![Noise](Report_and_Figures/noisy.png)
 
 ---
 
 ### Wiener Filter Result
 
-![Wiener](images/wiener.png)
+![Wiener](Report_and_Figures/wiener2.png)
 
 ---
 
 ### Richardson–Lucy Result
 
-![Richardson Lucy](images/richardson_lucy.png)
+![Richardson Lucy](Report_and_Figures/RL.png)
 
 ---
 
 ### Comparison
 
-![Comparison](images/comparison.png)
+![Comparison](Report_and_Figures/comparison.png)
 
 ---
 
